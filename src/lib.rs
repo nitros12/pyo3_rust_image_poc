@@ -9,7 +9,7 @@ use image::DynamicImage;
 
 use pyo3::prelude::*;
 
-use pyo3::{PyResult, Python, PyModule, PyRawObject, PyToken, PyErr};
+use pyo3::{PyResult, Python, PyModule, PyRawObject};
 
 py_exception!(image_meme, ImageError, pyo3::exc::Exception);
 
@@ -24,7 +24,7 @@ impl ImageWrapper {
     fn __new__(obj: &PyRawObject, path: &str) -> PyResult<()> {
         let img = image::open(path).map_err(|e| ImageError::new(e.to_string()))?;
 
-        obj.init(move |_| ImageWrapper {
+        obj.init(|_| ImageWrapper {
             inner: img
         })
     }
@@ -37,7 +37,7 @@ impl ImageWrapper {
         let gil = Python::acquire_gil();
         let py = gil.python();
 
-        py.init(move |_| img)
+        py.init(|_| img)
     }
 
     fn save(&self, path: &str) -> PyResult<()> {

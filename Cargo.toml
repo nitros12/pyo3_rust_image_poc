@@ -1,0 +1,15 @@
+[package]
+name = "image-meme"
+version = "0.1.0"
+authors = ["ben simms <ben@bensimms.moe>"]
+
+[dependencies]
+image = "*"
+
+[lib]
+name = "image_meme"
+crate-type = ["cdylib"]
+
+[dependencies.pyo3]
+version = "*"
+features = ["extension-module"]

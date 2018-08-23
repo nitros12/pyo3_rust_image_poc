@@ -5,20 +5,107 @@
 extern crate pyo3;
 extern crate image;
 
-use image::DynamicImage;
+use image::{DynamicImage, GenericImage, Rgba};
 
 use pyo3::prelude::*;
 
-use pyo3::{PyResult, Python, PyModule};
+use pyo3::{PyResult, Python, PyModule, PyObjectWithToken};
 
 py_exception!(image_meme, ImageError, pyo3::exc::Exception);
 
 
 #[pyclass]
-struct ImageWrapper {
-    inner: DynamicImage,
+#[derive(Copy, Clone)]
+struct RgbaWrapper {
+    #[prop(get, set)]
+    r: u8,
+    #[prop(get, set)]
+    b: u8,
+    #[prop(get, set)]
+    g: u8,
+    #[prop(get, set)]
+    a: u8,
 }
 
+impl From<Rgba<u8>> for RgbaWrapper {
+    #[inline]
+    fn from(p: Rgba<u8>) -> RgbaWrapper {
+        RgbaWrapper {
+            r: p[0],
+            g: p[1],
+            b: p[2],
+            a: p[3],
+        }
+    }
+}
+
+
+impl From<RgbaWrapper> for Rgba<u8> {
+    #[inline]
+    fn from(p: RgbaWrapper) -> Rgba<u8> {
+        Rgba { data: [p.r, p.g, p.b, p.a] }
+    }
+}
+
+
+// Iterators have fuck all docs, leave this out for now
+// #[pyclass(gc)]
+// struct PixelsIterator {
+//     image:  Py<ImageWrapper>,
+//     x:      u32,
+//     y:      u32,
+//     width:  u32,
+//     height: u32,
+//     token:  PyToken,
+// }
+
+// #[pyproto]
+// impl<'p> PyGCProtocol<'p> for PixelsIterator {
+//     fn __traverse__(&'p self, visit: PyVisit) -> Result<(), PyTraverseError> {
+//         visit.call(&self.image)
+//     }
+
+//     fn __clear__(&'p mut self) {
+//         self.py().release(&self.image);
+//     }
+// }
+
+// // #[pyproto]
+// impl<'p> PyIterProtocol<'p> for PixelsIterator {
+//     fn __iter__(&mut self) -> Self::Result {
+//         Ok(self.into())
+//     }
+
+//     // PyResult<Option<(u32, u32, Py<RgbaWrapper>)>>
+//     fn __next__(&mut self) -> Self::Result {
+//         if self.x >= self.width {
+//             self.x  = 0;
+//             self.y += 1;
+//         }
+
+//         if self.y >= self.height {
+//             Ok(None)
+//         } else {
+//             let gil = Python::acquire_gil();
+//             let py = gil.python();
+
+//             let image = self.image.as_ref(py);
+//             let pixel = image.get_pixel(self.x, self.y)?;
+
+//             let p = (self.x, self.y, pixel);
+
+//             self.x += 1;
+
+//             Ok(Some(p.into_tuple(py)))
+//         }
+//     }
+// }
+
+#[pyclass]
+struct ImageWrapper {
+    inner: DynamicImage,
+    token: PyToken,
+}
 
 #[pymethods]
 impl ImageWrapper {
@@ -32,8 +119,9 @@ impl ImageWrapper {
 
         let img = image::open(path).map_err(|e| ImageError::new(e.to_string()))?;
 
-        py.init(|_| ImageWrapper {
-            inner: img
+        py.init(|token| ImageWrapper {
+            inner: img,
+            token,
         })
     }
 
@@ -47,8 +135,9 @@ impl ImageWrapper {
 
         let img = image::load_from_memory(&data).map_err(|e| ImageError::new(e.to_string()))?;
 
-        py.init(|_| ImageWrapper {
-            inner: img
+        py.init(|token| ImageWrapper {
+            inner: img,
+            token
         })
     }
 
@@ -59,11 +148,9 @@ impl ImageWrapper {
     ///
     /// Rotate this image 90 degrees clockwise.
     fn rotate90(&self) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.rotate90()
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.rotate90(),
+            token
         })
     }
 
@@ -72,11 +159,9 @@ impl ImageWrapper {
     ///
     /// Rotate this image 180 degrees clockwise.
     fn rotate180(&self) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.rotate180()
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.rotate180(),
+            token
         })
     }
 
@@ -85,11 +170,9 @@ impl ImageWrapper {
     ///
     /// Rotate this image 270 degrees clockwise.
     fn rotate270(&self) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.rotate270()
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.rotate270(),
+            token
         })
     }
 
@@ -98,11 +181,9 @@ impl ImageWrapper {
     ///
     /// Rotate this image 90 degrees clockwise.
     fn fliph(&self) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.fliph()
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.fliph(),
+            token
         })
     }
 
@@ -111,11 +192,9 @@ impl ImageWrapper {
     ///
     /// Flip this image vertically
     fn flipv(&self) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.flipv()
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.flipv(),
+            token
         })
     }
 
@@ -124,12 +203,9 @@ impl ImageWrapper {
     ///
     /// Return this image's pixels as a byte array
     fn raw_pixels(&self) -> PyResult<Py<PyByteArray>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
         let pixels = self.inner.raw_pixels();
 
-        Ok(PyByteArray::new(py, &pixels).into())
+        Ok(PyByteArray::new(self.py(), &pixels).into())
     }
 
     /// grayscale(self, /) -> ImageWrapper
@@ -137,11 +213,9 @@ impl ImageWrapper {
     ///
     /// Return a grayscale version of this image.
     fn grayscale(&self) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.grayscale()
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.grayscale(),
+            token
         })
     }
 
@@ -165,9 +239,6 @@ impl ImageWrapper {
     ///
     /// The parameter `filter` should be a string of any of \"Nearest\", \"Triangle\", \"CatmullRom\", \"Gaussian\", or \"Lanczos3\".
     fn resize(&self, nwidth: u32, nheight: u32, filter: &str) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
         let filter_meth = match filter {
             "Nearest"    => image::FilterType::Nearest,
             "Triangle"   => image::FilterType::Triangle,
@@ -177,8 +248,9 @@ impl ImageWrapper {
             _            => return Err(ImageError::new(format!("Unrecognised filter: {}", filter))),
         };
 
-        py.init(|_| ImageWrapper {
-            inner: self.inner.resize(nwidth, nheight, filter_meth)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.resize(nwidth, nheight, filter_meth),
+            token
         })
     }
 
@@ -191,9 +263,6 @@ impl ImageWrapper {
     ///
     /// The parameter `filter` should be a string of any of \"Nearest\", \"Triangle\", \"CatmullRom\", \"Gaussian\", or \"Lanczos3\".
     fn resize_exact(&self, nwidth: u32, nheight: u32, filter: &str) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
         let filter_meth = match filter {
             "Nearest"    => image::FilterType::Nearest,
             "Triangle"   => image::FilterType::Triangle,
@@ -203,8 +272,9 @@ impl ImageWrapper {
             _            => return Err(ImageError::new(format!("Unrecognised filter: {}", filter))),
         };
 
-        py.init(|_| ImageWrapper {
-            inner: self.inner.resize_exact(nwidth, nheight, filter_meth)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.resize_exact(nwidth, nheight, filter_meth),
+            token
         })
     }
 
@@ -218,9 +288,6 @@ impl ImageWrapper {
     ///
     /// The parameter `filter` should be a string of any of \"Nearest\", \"Triangle\", \"CatmullRom\", \"Gaussian\", or \"Lanczos3\".
     fn resize_to_fill(&self, nwidth: u32, nheight: u32, filter: &str) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
         let filter_meth = match filter {
             "Nearest"    => image::FilterType::Nearest,
             "Triangle"   => image::FilterType::Triangle,
@@ -230,8 +297,9 @@ impl ImageWrapper {
             _            => return Err(ImageError::new(format!("Unrecognised filter: {}", filter))),
         };
 
-        py.init(|_| ImageWrapper {
-            inner: self.inner.resize_to_fill(nwidth, nheight, filter_meth)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.resize_to_fill(nwidth, nheight, filter_meth),
+            token
         })
     }
 
@@ -246,11 +314,9 @@ impl ImageWrapper {
     /// This method uses a fast integer algorithm where each source pixel contributes to exactly one target pixel.
     /// May give aliasing artifacts if new size is close to old size.
     fn thumbnail(&self, nwidth: u32, nheight: u32) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.thumbnail(nwidth, nheight)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.thumbnail(nwidth, nheight),
+            token
         })
     }
 
@@ -264,11 +330,9 @@ impl ImageWrapper {
     /// This method uses a fast integer algorithm where each source pixel contributes to exactly one target pixel.
     /// May give aliasing artifacts if new size is close to old size.
     fn thumbnail_exact(&self, nwidth: u32, nheight: u32) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.thumbnail_exact(nwidth, nheight)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.thumbnail_exact(nwidth, nheight),
+            token
         })
     }
 
@@ -278,11 +342,9 @@ impl ImageWrapper {
     /// Performs a Gaussian blur on this image.
     /// `sigma` is a measure of how much to blur by.
     fn blur(&self, sigma: f32) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.blur(sigma)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.blur(sigma),
+            token
         })
     }
 
@@ -293,11 +355,9 @@ impl ImageWrapper {
     /// `sigma` is the amount to blur the image by.
     /// `threshold` is a control of how much to sharpen.
     fn unsharpen(&self, sigma: f32, threshold: i32) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.unsharpen(sigma, threshold)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.unsharpen(sigma, threshold),
+            token
         })
     }
 
@@ -313,8 +373,9 @@ impl ImageWrapper {
             return Err(ImageError::new("kernel must be 3x3"));
         }
 
-        py.init(|_| ImageWrapper {
-            inner: self.inner.filter3x3(&kernel)
+        py.init(|token| ImageWrapper {
+            inner: self.inner.filter3x3(&kernel),
+            token
         })
     }
 
@@ -325,11 +386,9 @@ impl ImageWrapper {
     /// `contrast` is the amount to adjust the contrast by.
     /// Negative values decrease the contrast and positive values increase the contrast.
     fn adjust_contrast(&self, c: f32) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.adjust_contrast(c)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.adjust_contrast(c),
+            token
         })
     }
 
@@ -340,11 +399,9 @@ impl ImageWrapper {
     /// `value` is the amount to brighten each pixel by.
     /// Negative values decrease the brightness and positive values increase it.
     fn brighten(&self, value: i32) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.brighten(value)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.brighten(value),
+            token
         })
     }
 
@@ -356,11 +413,9 @@ impl ImageWrapper {
     /// 0 and 360 do nothing, the rest rotates by the given degree value.
     /// just like the css webkit filter hue-rotate(180)
     fn huerotate(&self, value: i32) -> PyResult<Py<ImageWrapper>> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        py.init(|_| ImageWrapper {
-            inner: self.inner.huerotate(value)
+        self.py().init(|token| ImageWrapper {
+            inner: self.inner.huerotate(value),
+            token
         })
     }
 
@@ -403,11 +458,81 @@ impl ImageWrapper {
 
         Ok(PyByteArray::new(py, &buf).into())
     }
+
+    /// dimensions(self, /) -> Tuple[int, int]
+    /// --
+    ///
+    /// The width and height of this image.
+    fn dimensions(&self) -> PyResult<(u32, u32)> {
+        Ok(self.inner.dimensions())
+    }
+
+    /// width(self, /) -> int
+    /// --
+    ///
+    /// The width and height of this image.
+    fn width(&self) -> PyResult<u32> {
+        Ok(self.inner.width())
+    }
+
+    /// height(self, /) -> int
+    /// --
+    ///
+    /// The height and height of this image.
+    fn height(&self) -> PyResult<u32> {
+        Ok(self.inner.height())
+    }
+
+    /// bounds(self, /) -> Tuple[int, int, int, int]
+    /// --
+    ///
+    /// The bounding rectangle of this image.
+    fn bounds(&self) -> PyResult<(u32, u32, u32, u32)> {
+        Ok(self.inner.bounds())
+    }
+
+    /// get_pixel(self, x: int, y: int, /) -> RgbaWrapper
+    /// --
+    ///
+    /// Returns the pixel located at (`x`, `y`)
+    fn get_pixel(&self, x: u32, y: u32) -> PyResult<Py<RgbaWrapper>> {
+        if !self.inner.in_bounds(x, y)  {
+            return Err(ImageError::new("Coordinate out of bounds of image."));
+        }
+
+        self.py().init(|_| self.inner.get_pixel(x, y).into())
+    }
+
+    /// put_pixel(self, x: int, y: int, pixel: RgbaWrapper, /)
+    /// --
+    ///
+    /// Put a pixel at location (`x`, `y`)
+    fn put_pixel(&mut self, x: u32, y: u32, pixel: &RgbaWrapper) -> PyResult<()> {
+        if !self.inner.in_bounds(x, y)  {
+            return Err(ImageError::new("Coordinate out of bounds of image."));
+        }
+
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+
+        self.inner.put_pixel(x, y, (*pixel).into());
+
+        Ok(())
+    }
+
+    /// in_bounds(self, x: int, y: int, /) -> bool
+    /// --
+    ///
+    /// Return true if this `x`, `y` coordinate is contained inside the image.
+    fn in_bounds(&self, x: u32, y: u32) -> PyResult<bool> {
+        Ok(self.inner.in_bounds(x, y))
+    }
 }
 
 #[pymodinit]
 fn image_meme(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ImageWrapper>()?;
+    m.add_class::<RgbaWrapper>()?;
 
     Ok(())
 }
